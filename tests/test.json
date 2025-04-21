@@ -1,0 +1,7 @@
+{
+    "tool": "read_rows",
+    "arguments": {
+        "table_name": "products",
+        "limit": 5
+    }
+}
