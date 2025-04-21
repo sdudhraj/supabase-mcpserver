@@ -30,6 +30,64 @@ This project implements a Model Context Protocol (MCP) server that provides tool
     python server.py
     ```
 
+## Docker
+
+1.  Build the Docker container:
+
+    ```bash
+    docker build -t mcp-server .
+    ```
+
+2.  Run the container:
+
+    ```bash
+    docker run -p 8000:8000 mcp-server
+    ```
+
+    This will build an image named `mcp-server` and then run it, mapping port 8000 on your host to port 8000 in the container.
+
+## GitHub Repository
+
+To push the files to a GitHub repository, follow these steps:
+
+1.  Initialize a Git repository in the current directory:
+
+    ```bash
+    git init
+    ```
+
+2.  Add all the files to the staging area:
+
+    ```bash
+    git add .
+    ```
+
+3.  Commit the changes:
+
+    ```bash
+    git commit -m "Initial commit"
+    ```
+
+4.  Rename the branch to main:
+
+    ```bash
+    git branch -M main
+    ```
+
+5.  Add the remote repository:
+
+    ```bash
+    git remote add origin https://github.com/amraly83/supabase-mcp-server.git
+    ```
+
+6.  Push the files to the repository:
+
+    ```bash
+    git push -u origin main
+    ```
+
+    You may be prompted for your GitHub username and password. If you have 2FA enabled, you'll need to use a personal access token instead of your password.
+
 ## Usage
 
 The server provides the following tools:

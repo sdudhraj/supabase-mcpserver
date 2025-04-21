@@ -11,6 +11,8 @@
 - [x] Update README.md with setup and usage instructions
 - [x] Add unit tests for all tools
 - [x] Implement error handling and logging
+- [x] Create a Dockerfile for the MCP server
+- [x] Push the files to a GitHub repository
 - [ ] Add support for pagination in read operations
 - [ ] Add support for filtering in read operations
 - [ ] Add support for sorting in read operations

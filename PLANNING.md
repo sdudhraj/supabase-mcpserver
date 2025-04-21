@@ -33,8 +33,9 @@ This project implements a Model Context Protocol (MCP) server that provides tool
 ```
 supabase-mcp/
 ├── server.py              # Main MCP server implementation
-├── supabase_client.py     # Supabase client wrapper
 ├── requirements.txt       # Python dependencies
+├── Dockerfile             # Docker configuration
+├── .gitignore             # Specifies intentionally untracked files that Git should ignore
 ├── .env.example           # Example environment variables
 ├── README.md              # Project documentation
 ├── PLANNING.md            # Project planning (this file)
@@ -52,3 +53,8 @@ supabase-mcp/
 - mcp
 - supabase
 - python-dotenv
+
+## Current Status
+- Dockerfile created for containerizing the application.
+- .gitignore file created to exclude unnecessary files from Git.
+- Files ready to be pushed to a GitHub repository.
