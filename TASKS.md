@@ -21,6 +21,7 @@
 - [ ] Consider adding a tool for executing raw SQL queries
 - [ ] Consider adding a tool for listing available tables
 - [ ] Consider adding a tool for reading table schemas
+- [ ] Troubleshoot "Invalid API key" error in Supabase client initialization (Added on 2025-04-22)
 
 ## Tasks in Progress
 - [x] Create an MCP server written in Python (using FastMCP) to interact with a Supabase database. The server should use the Stdio transport and have the following tools:
