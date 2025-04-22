@@ -1,164 +1,264 @@
 import os
+import json
+from typing import Dict, List, Any, Optional, Union
+from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator
+from dataclasses import dataclass
+
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
 from supabase import create_client, Client
+from mcp.server.fastmcp import FastMCP, Context
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Get credentials from environment variables
-SUPABASE_URL = os.environ["SUPABASE_URL"]
-SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+# Create a dataclass for our application context
+@dataclass
+class SupabaseContext:
+    """Context for the Supabase MCP server."""
+    client: Client
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-def get_supabase_client():
-    return supabase
-
-# Get initialized client
-supabase = get_supabase_client()
-
-def read_rows(table_name: str, limit: int = 10):
+@asynccontextmanager
+async def supabase_lifespan(server: FastMCP) -> AsyncIterator[SupabaseContext]:
     """
-    Reads rows from a specified Supabase table.
-
-    This tool allows you to retrieve data from a specific table in your Supabase database.
-    You must specify the table name. You can optionally limit the number of rows returned.
+    Manages the Supabase client lifecycle.
 
     Args:
-        table_name (str): The name of the table to read from. This is a required parameter.
-        limit (int): The maximum number of rows to return. Defaults to 10. This is an optional parameter.
+        server: The FastMCP server instance
+
+    Yields:
+        SupabaseContext: The context containing the Supabase client
+    """
+    # Get environment variables
+    supabase_url = os.getenv("SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+    if not supabase_url or not supabase_key:
+        raise ValueError(
+            "Missing environment variables. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+        )
+
+    # Initialize Supabase client
+    supabase_client = create_client(supabase_url, supabase_key)
+
+    try:
+        yield SupabaseContext(client=supabase_client)
+    finally:
+        # No explicit cleanup needed for Supabase client
+        pass
+
+# Create the MCP server instance using the lifespan manager
+mcp = FastMCP(
+    "Supabase MCP Server",
+    description="MCP server for interacting with Supabase databases using FastMCP patterns",
+    lifespan=supabase_lifespan
+)
+
+@mcp.tool()
+def read_table_rows(
+    ctx: Context,
+    table_name: str,
+    columns: str = "*",
+    filters: Optional[Dict[str, Any]] = None,
+    limit: Optional[int] = None,
+    order_by: Optional[str] = None,
+    ascending: bool = True
+) -> List[Dict[str, Any]]:
+    """
+    Reads rows from a specified Supabase table with optional filtering, ordering, and limiting.
+
+    Args:
+        ctx: The MCP context.
+        table_name (str): The name of the table to read from.
+        columns (str): Comma-separated list of columns to select (default: "*" for all columns).
+        filters (Optional[Dict[str, Any]]): Dictionary of column-value pairs to filter rows (e.g., {"is_active": True}).
+        limit (Optional[int]): The maximum number of rows to return.
+        order_by (Optional[str]): Column name to order results by.
+        ascending (bool): Whether to sort in ascending order (default: True).
 
     Returns:
-        list: A list of rows from the table, or an error dictionary if unsuccessful.
-              Each row is a dictionary containing the data for that row.
-
-    Usage:
-        To read the first 10 rows from a table named "products", call with table_name="products".
-        To read the first 20 rows from the same table, call with table_name="products" and limit=20.
+        List[Dict[str, Any]]: A list of rows (as dictionaries) from the table, or raises an error on failure.
     """
+    supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             return {"error": "Invalid table_name provided. Must be a non-empty string."}
-        if not isinstance(limit, int) or limit <= 0:
-             return {"error": "Invalid limit provided. Must be a positive integer."}
-             
-        response = supabase.table(table_name).select("*").limit(limit).execute()
-        # TODO: Add more specific error checking based on response structure if needed
+             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
+        if limit is not None and (not isinstance(limit, int) or limit <= 0):
+             raise ValueError("Invalid limit provided. Must be a positive integer.")
+
+        # Start building the query
+        query = supabase.table(table_name).select(columns)
+
+        # Apply filters if provided
+        if filters:
+            if not isinstance(filters, dict):
+                raise ValueError("Invalid filters provided. Must be a dictionary.")
+            for column, value in filters.items():
+                query = query.eq(column, value)
+
+        # Apply ordering if provided
+        if order_by:
+            if not isinstance(order_by, str):
+                 raise ValueError("Invalid order_by provided. Must be a string.")
+            # Note: Supabase Python client v2 uses order(column, desc=False/True)
+            query = query.order(order_by, desc=not ascending)
+
+        # Apply limit if provided
+        if limit:
+            query = query.limit(limit)
+
+        # Execute the query
+        response = query.execute()
+
+        # Supabase client raises exceptions on errors, otherwise return data
         return response.data
     except Exception as e:
-        return {"error": f"An error occurred while reading rows from table '{table_name}': {str(e)}"}
+        # Let FastMCP handle propagating the error
+        raise Exception(f"An error occurred while reading rows from table '{table_name}': {str(e)}") from e
 
-def create_record(table_name: str, record: dict):
+@mcp.tool()
+def create_table_records(
+    ctx: Context,
+    table_name: str,
+    records: Union[Dict[str, Any], List[Dict[str, Any]]]
+) -> Dict[str, Any]:
     """
-    Creates a new record in a Supabase table.
-
-    This tool allows you to create a new record in a specified table in your Supabase database.
-    You must provide the table name and a dictionary containing the data for the new record.
+    Creates one or multiple new records in a Supabase table.
 
     Args:
-        table_name (str): The name of the table to create the record in. This is a required parameter.
-        record (dict): A dictionary containing the data for the new record. This is a required parameter.
+        ctx: The MCP context.
+        table_name (str): The name of the table to create the record(s) in.
+        records (Union[Dict[str, Any], List[Dict[str, Any]]]): A dictionary for a single record or a list of dictionaries for multiple records.
 
     Returns:
-        dict: The newly created record.
-
-    Usage:
-        To create a new record in a table named "products" with data {"name": "Example Product", "price": 9.99},
-        you would call this tool with table_name="products" and record={"name": "Example Product", "price": 9.99}.
+        Dict[str, Any]: Dictionary containing the created records' data, count, and status.
     """
+    supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             return {"error": "Invalid table_name provided. Must be a non-empty string."}
-        if not record or not isinstance(record, dict):
-             return {"error": "Invalid record provided. Must be a non-empty dictionary."}
+             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
+        if not records or not (isinstance(records, dict) or isinstance(records, list)):
+             raise ValueError("Invalid records provided. Must be a non-empty dictionary or list.")
+        if isinstance(records, list) and not all(isinstance(r, dict) for r in records):
+             raise ValueError("Invalid records list provided. All items must be dictionaries.")
 
-        response = supabase.table(table_name).insert(record).execute()
-        # TODO: Add more specific error checking based on response structure if needed
-        return response.data
+        response = supabase.table(table_name).insert(records).execute()
+
+        # Supabase client raises exceptions on errors
+        data = response.data
+        count = len(data) if data else 0
+        return {
+            "data": data,
+            "count": count,
+            "status": "success" if count > 0 else "no records created or error" # Adjust based on expected success response
+        }
     except Exception as e:
-        return {"error": f"An error occurred while creating a record in table '{table_name}': {str(e)}"}
+        raise Exception(f"An error occurred while creating record(s) in table '{table_name}': {str(e)}") from e
 
-
-def update_record(table_name: str, record_id: int, updates: dict):
+@mcp.tool()
+def update_table_records(
+    ctx: Context,
+    table_name: str,
+    updates: Dict[str, Any],
+    filters: Dict[str, Any]
+) -> Dict[str, Any]:
     """
-    Updates an existing record in a Supabase table.
-
-    This tool allows you to update an existing record in a specified table in your Supabase database.
-    You must provide the table name, the ID of the record to update, and a dictionary containing the updates to apply.
+    Updates existing records in a Supabase table based on filters.
 
     Args:
-        table_name (str): The name of the table to update the record in. This is a required parameter.
-        record_id (int): The ID of the record to update. This is a required parameter.
-        updates (dict): A dictionary containing the updates to apply to the record. This is a required parameter.
+        ctx: The MCP context.
+        table_name (str): The name of the table to update records in.
+        updates (Dict[str, Any]): A dictionary containing the updates to apply.
+        filters (Dict[str, Any]): A dictionary of column-value pairs to filter which rows to update.
 
     Returns:
-        dict: The updated record.
-
-    Usage:
-        To update the record with ID 1 in a table named "products" to change the price to 19.99,
-        you would call this tool with table_name="products", record_id=1, and updates={"price": 19.99}.
+        Dict[str, Any]: Dictionary containing the updated records' data, count, and status.
     """
+    supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             return {"error": "Invalid table_name provided. Must be a non-empty string."}
-        # Assuming record_id should be an integer, add type check if necessary
-        if not isinstance(record_id, int):
-             return {"error": "Invalid record_id provided. Must be an integer."}
+             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
         if not updates or not isinstance(updates, dict):
-             return {"error": "Invalid updates provided. Must be a non-empty dictionary."}
+             raise ValueError("Invalid updates provided. Must be a non-empty dictionary.")
+        if not filters or not isinstance(filters, dict):
+             raise ValueError("Invalid filters provided. Must be a non-empty dictionary.")
 
-        response = supabase.table(table_name).update(updates).eq("id", record_id).execute()
-        # TODO: Add more specific error checking based on response structure if needed
-        return response.data
+        # Start building the query
+        query = supabase.table(table_name).update(updates)
+
+        # Apply filters
+        for column, value in filters.items():
+            query = query.eq(column, value)
+
+        # Execute the query
+        response = query.execute()
+
+        # Supabase client raises exceptions on errors
+        data = response.data
+        count = len(data) if data else 0
+        return {
+            "data": data,
+            "count": count,
+            "status": "success" if count > 0 else "no records updated or error" # Adjust based on expected success response
+        }
     except Exception as e:
-        return {"error": f"An error occurred while updating record ID {record_id} in table '{table_name}': {str(e)}"}
+        raise Exception(f"An error occurred while updating records in table '{table_name}': {str(e)}") from e
 
-
-def delete_record(table_name: str, record_id: int):
+@mcp.tool()
+def delete_table_records(
+    ctx: Context,
+    table_name: str,
+    filters: Dict[str, Any]
+) -> Dict[str, Any]:
     """
-    Deletes a record from a Supabase table.
-
-    This tool allows you to delete a record from a specified table in your Supabase database.
-    You must provide the table name and the ID of the record to delete.
+    Deletes records from a Supabase table based on filters.
 
     Args:
-        table_name (str): The name of the table to delete the record from. This is a required parameter.
-        record_id (int): The ID of the record to delete. This is a required parameter.
+        ctx: The MCP context.
+        table_name (str): The name of the table to delete records from.
+        filters (Dict[str, Any]): A dictionary of column-value pairs to filter which rows to delete.
 
     Returns:
-        dict: The deleted record.
-
-    Usage:
-        To delete the record with ID 1 from a table named "products",
-        you would call this tool with table_name="products" and record_id=1.
+        Dict[str, Any]: Dictionary containing the deleted records' data, count, and status.
     """
+    supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             return {"error": "Invalid table_name provided. Must be a non-empty string."}
-        # Assuming record_id should be an integer, add type check if necessary
-        if not isinstance(record_id, int):
-             return {"error": "Invalid record_id provided. Must be an integer."}
+             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
+        if not filters or not isinstance(filters, dict):
+             raise ValueError("Invalid filters provided. Must be a non-empty dictionary.")
 
-        response = supabase.table(table_name).delete().eq("id", record_id).execute()
-        # TODO: Add more specific error checking based on response structure if needed
-        # Check if delete was successful, response.data might be empty on success
-        # Consider returning a success message or status
-        return response.data # May need adjustment based on actual successful delete response
+        # Start building the query
+        query = supabase.table(table_name).delete()
+
+        # Apply filters
+        for column, value in filters.items():
+            query = query.eq(column, value)
+
+        # Execute the query
+        response = query.execute()
+
+        # Supabase client raises exceptions on errors
+        data = response.data
+        count = len(data) if data else 0 # Count might represent deleted items
+        return {
+            "data": data, # May contain info about deleted records
+            "count": count,
+            "status": "success" if count > 0 else "no records deleted or error" # Adjust based on expected success response
+        }
     except Exception as e:
-        return {"error": f"An error occurred while deleting record ID {record_id} from table '{table_name}': {str(e)}"}
+        raise Exception(f"An error occurred while deleting records from table '{table_name}': {str(e)}") from e
 
-
-import json # Add json import for schema conversion
-
-def create_table(table_name: str, schema: list):
+@mcp.tool()
+def create_table(ctx: Context, table_name: str, schema: list) -> dict:
     """
     Creates a new table in the Supabase database using an RPC call.
 
     Note: This requires the PostgreSQL function 'create_new_table(p_table_name TEXT, p_columns JSONB)'
-    to be defined in your Supabase SQL editor. See implementation comments for the function definition.
+    to be defined in your Supabase SQL editor.
 
     Args:
+        ctx: The MCP context.
         table_name (str): The name of the table to create. Must be a valid PostgreSQL identifier.
         schema (list): A list of column definitions. Each item must be a dictionary
                        containing 'name' (str), 'type' (str, e.g., 'TEXT', 'INT'),
@@ -167,6 +267,7 @@ def create_table(table_name: str, schema: list):
     Returns:
         dict: Contains 'success' (bool) and 'message' (str) indicating the result from the RPC call.
     """
+    supabase = ctx.request_context.lifespan_context.client
     try:
         # Basic input validation
         if not table_name or not isinstance(table_name, str):
@@ -185,91 +286,53 @@ def create_table(table_name: str, schema: list):
             if 'constraints' in col and not isinstance(col.get('constraints'), str):
                  return {'success': False, 'message': f"Invalid constraints for '{col['name']}': Constraints must be a string."}
 
-
         # Call the RPC function
-        # Convert schema list to JSONB parameter
         response = supabase.rpc('create_new_table', {'p_table_name': table_name, 'p_columns': schema}).execute()
 
-        print(f"RPC response: {response}")
-
-        # The RPC function returns a single text message
+        # The RPC function is expected to return a single text message or raise an error
         message = response.data if response.data else "No response message from RPC."
-
         # Determine success based on the message content (adjust as needed based on SQL function)
-        success = "successfully" in message.lower() or "table created successfully" in message.lower() and "error" not in message.lower()
+        # Assuming the SQL function returns a success message or raises an error handled by the client/FastMCP
+        success = "successfully" in str(message).lower() or "table created successfully" in str(message).lower()
 
-        return {'success': success, 'message': message}
+        return {'success': success, 'message': str(message)}
 
     except Exception as e:
         # Handle exceptions during RPC call or validation
-        return {'success': False, 'message': f"An error occurred: {str(e)}"}
+        # Return error structure consistent with other tools if possible, or re-raise
+        return {'success': False, 'message': f"An error occurred during create_table: {str(e)}"}
 
 
-def list_tables():
+@mcp.tool()
+def list_tables(ctx: Context) -> list:
     """
-    Lists all tables in the Supabase database.
+    Lists all tables in the 'public' schema of the Supabase database using an RPC call.
 
-    This tool allows you to retrieve a list of all table names in your Supabase database.
+    Note: This requires the PostgreSQL function 'list_tables_in_schema(schema_name TEXT DEFAULT 'public')'
+    to be defined in your Supabase SQL editor.
 
     Args:
-        None
+        ctx: The MCP context.
 
     Returns:
-        list: A list of table names.
-
-    Usage:
-        To list all tables in the Supabase database, you would call this tool with no arguments.
+        list: A list of table names in the public schema.
     """
+    supabase = ctx.request_context.lifespan_context.client
     try:
-        # Attempt to call a hypothetical RPC function to get tables from the 'public' schema
-        # This assumes a function named 'list_public_tables' exists in Supabase that returns table names.
-        # If this function doesn't exist, this call will fail.
-        # A more robust approach might involve creating such a function in Supabase
-        # or finding if Supabase/PostgREST offers a direct metadata endpoint.
-        # For now, we query information_schema directly via RPC.
-        # Note: This requires the function 'list_tables_in_schema' to be defined in your Supabase SQL editor:
-        # CREATE OR REPLACE FUNCTION list_tables_in_schema(schema_name TEXT DEFAULT 'public')
-        # RETURNS TABLE(table_name TEXT) AS $$
-        # BEGIN
-        #   RETURN QUERY
-        #   SELECT tablename::TEXT FROM pg_catalog.pg_tables WHERE schemaname = schema_name;
-        # END;
-        # $$ LANGUAGE plpgsql; # End of SQL function definition
-
+        # Call the RPC function to list tables in the 'public' schema
         response = supabase.rpc('list_tables_in_schema', {'schema_name': 'public'}).execute()
 
-        # Check for errors returned by the RPC call itself or during execution
-        # Note: supabase-py might raise exceptions for network/API errors, caught below.
-        # This checks for logical errors returned in the data payload.
-        if hasattr(response, 'error') and response.error:
-             # Handle PostgREST errors if they are returned in an 'error' attribute
-             return {"error": f"RPC error listing tables: {response.error}"}
-             
+        # Supabase client raises exceptions on errors
         if response.data:
-             # Check if the data itself indicates an error from the SQL function
-             if isinstance(response.data, list) and len(response.data) > 0 and isinstance(response.data[0], dict) and 'error' in response.data[0]:
-                  return {"error": response.data[0]['error']} # Propagate error message from SQL function
-             # Otherwise, assume success and extract table names
+             # Assuming the RPC function returns a list of dicts like [{'table_name': 'name1'}, ...]
              return [table['table_name'] for table in response.data if isinstance(table, dict) and 'table_name' in table]
         else:
-            # Handle potential errors or empty results from RPC
-            # Check response.error if available, though supabase-py might raise exceptions
-            return {"error": "Failed to list tables or no tables found."}
-            
+            # Handle case where RPC returns no data (could be no tables or an issue)
+            return [] # Return empty list if no tables found or RPC returned nothing
+
     except Exception as e:
-        # Basic error handling
-        return {"error": f"An error occurred while listing tables: {str(e)}"}
+        raise Exception(f"An error occurred while listing tables: {str(e)}") from e
 
-
-tools = [
-    read_rows,
-    create_record,
-    update_record,
-    delete_record,
-    list_tables,
-    create_table,
-]
 
 if __name__ == "__main__":
-    mcp = FastMCP("Supabase MCP Server", tools=tools)
-    mcp.run()
+    mcp.run() # No need to pass tools list, decorators handle it
