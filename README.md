@@ -17,18 +17,23 @@ This project implements a Model Context Protocol (MCP) server that provides tool
     pip install -r requirements.txt
     ```
 
-3.  Create a `.env` file with your Supabase project URL and service role key:
+3.  The server now accepts Supabase credentials from client requests instead of requiring environment variables. 
+    Clients should provide these in their request:
 
-    ```
-    SUPABASE_URL=your_supabase_url
-    SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
-    ```
-
-4.  Run the server:
-
-    ```bash
-    python server.py
-    ```
+```json
+{
+    "supabase_url": "your_supabase_url",
+    "supabase_key": "your_supabase_service_role_key",
+    "tool": "create_table",
+    "arguments": {
+        "table_name": "users",
+        "schema": [
+            {"name": "id", "type": "SERIAL PRIMARY KEY"},
+            {"name": "name", "type": "TEXT"}
+        ]
+    }
+}
+```
 
 ## Docker
 
@@ -116,6 +121,8 @@ To use the server, you can send JSON requests to the server's standard input. Fo
 
 ```json
 {
+    "supabase_url": "your_supabase_url",
+    "supabase_key": "your_supabase_service_role_key",
     "tool": "read_rows",
     "arguments": {
         "table_name": "products",
@@ -128,6 +135,8 @@ To list all tables in the Supabase database, you would send the following JSON:
 
 ```json
 {
+    "supabase_url": "your_supabase_url",
+    "supabase_key": "your_supabase_service_role_key",
     "tool": "list_tables",
     "arguments": {}
 }
@@ -137,6 +146,8 @@ To create a new table named "users" with columns "id" (SERIAL PRIMARY KEY) and "
 
 ```json
 {
+    "supabase_url": "your_supabase_url",
+    "supabase_key": "your_supabase_service_role_key",
     "tool": "create_table",
     "arguments": {
         "table_name": "users",

@@ -29,13 +29,18 @@ async def supabase_lifespan(server: FastMCP) -> AsyncIterator[SupabaseContext]:
     Yields:
         SupabaseContext: The context containing the Supabase client
     """
-    # Get environment variables
-    supabase_url = os.getenv("SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    # Get credentials from client request
+    if not hasattr(server, 'client_request') or not server.client_request:
+        raise ValueError(
+            "Missing Supabase credentials. Please provide SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the client request."
+        )
+        
+    supabase_url = server.client_request.get('supabase_url')
+    supabase_key = server.client_request.get('supabase_key')
 
     if not supabase_url or not supabase_key:
         raise ValueError(
-            "Missing environment variables. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+            "Missing Supabase credentials. Please provide SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the client request."
         )
 
     # Initialize Supabase client
