@@ -1,10 +1,13 @@
-FROM python:3.9-slim-buster
+FROM python:3.12-slim
 
 WORKDIR /app
 
+# Copy requirements file and install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py .
+# Copy the MCP server files
+COPY . .
 
-CMD ["python", "server.py"]
+# Command to run the MCP server
+CMD ["python", "supabase_mcp/server.py"]
