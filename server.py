@@ -41,7 +41,7 @@ async def supabase_lifespan(server: FastMCP) -> AsyncIterator[SupabaseContext]:
 
     if not supabase_url or not supabase_key:
         raise ValueError(
-            "Missing Supabase credentials. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in environment variables or provide them in the client request."
+            "Missing Supabase credentials. Please ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set as environment variables or included in the client request under 'supabase_url' and 'supabase_key' keys. For environment variables, you can set them in a .env file or directly in your terminal before running the server."
         )
 
     # Initialize Supabase client
