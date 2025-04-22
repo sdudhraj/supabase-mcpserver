@@ -29,18 +29,19 @@ async def supabase_lifespan(server: FastMCP) -> AsyncIterator[SupabaseContext]:
     Yields:
         SupabaseContext: The context containing the Supabase client
     """
-    # Get credentials from client request
-    if not hasattr(server, 'client_request') or not server.client_request:
-        raise ValueError(
-            "Missing Supabase credentials. Please provide SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the client request."
-        )
-        
-    supabase_url = server.client_request.get('supabase_url')
-    supabase_key = server.client_request.get('supabase_key')
+    # Try to get from client request first
+    supabase_url = server.client_request.get('supabase_url') if hasattr(server, 'client_request') and server.client_request else None
+    supabase_key = server.client_request.get('supabase_key') if hasattr(server, 'client_request') and server.client_request else None
+
+    # Fallback to environment variables
+    if not supabase_url:
+        supabase_url = os.getenv('SUPABASE_URL')
+    if not supabase_key:
+        supabase_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
 
     if not supabase_url or not supabase_key:
         raise ValueError(
-            "Missing Supabase credentials. Please provide SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in the client request."
+            "Missing Supabase credentials. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in environment variables or provide them in the client request."
         )
 
     # Initialize Supabase client
@@ -87,38 +88,25 @@ def read_table_rows(
     supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
+            raise ValueError("Invalid table_name provided. Must be a non-empty string.")
         if limit is not None and (not isinstance(limit, int) or limit <= 0):
-             raise ValueError("Invalid limit provided. Must be a positive integer.")
+            raise ValueError("Invalid limit provided. Must be a positive integer.")
 
-        # Start building the query
         query = supabase.table(table_name).select(columns)
-
-        # Apply filters if provided
         if filters:
             if not isinstance(filters, dict):
                 raise ValueError("Invalid filters provided. Must be a dictionary.")
             for column, value in filters.items():
                 query = query.eq(column, value)
-
-        # Apply ordering if provided
         if order_by:
             if not isinstance(order_by, str):
-                 raise ValueError("Invalid order_by provided. Must be a string.")
-            # Note: Supabase Python client v2 uses order(column, desc=False/True)
-            query = query.order(order_by, desc=not ascending)
-
-        # Apply limit if provided
+                raise ValueError("Invalid order_by provided. Must be a string.")
+            query = query.order(order_by, descending=not ascending)
         if limit:
             query = query.limit(limit)
-
-        # Execute the query
         response = query.execute()
-
-        # Supabase client raises exceptions on errors, otherwise return data
         return response.data
     except Exception as e:
-        # Let FastMCP handle propagating the error
         raise Exception(f"An error occurred while reading rows from table '{table_name}': {str(e)}") from e
 
 @mcp.tool()
@@ -141,22 +129,15 @@ def create_table_records(
     supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
+            raise ValueError("Invalid table_name provided. Must be a non-empty string.")
         if not records or not (isinstance(records, dict) or isinstance(records, list)):
-             raise ValueError("Invalid records provided. Must be a non-empty dictionary or list.")
+            raise ValueError("Invalid records provided. Must be a non-empty dictionary or list.")
         if isinstance(records, list) and not all(isinstance(r, dict) for r in records):
-             raise ValueError("Invalid records list provided. All items must be dictionaries.")
-
+            raise ValueError("Invalid records list provided. All items must be dictionaries.")
         response = supabase.table(table_name).insert(records).execute()
-
-        # Supabase client raises exceptions on errors
         data = response.data
         count = len(data) if data else 0
-        return {
-            "data": data,
-            "count": count,
-            "status": "success" if count > 0 else "no records created or error" # Adjust based on expected success response
-        }
+        return {"data": data, "count": count, "status": "success" if count > 0 else "no records created or error"}
     except Exception as e:
         raise Exception(f"An error occurred while creating record(s) in table '{table_name}': {str(e)}") from e
 
@@ -182,30 +163,18 @@ def update_table_records(
     supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
+            raise ValueError("Invalid table_name provided. Must be a non-empty string.")
         if not updates or not isinstance(updates, dict):
-             raise ValueError("Invalid updates provided. Must be a non-empty dictionary.")
+            raise ValueError("Invalid updates provided. Must be a non-empty dictionary.")
         if not filters or not isinstance(filters, dict):
-             raise ValueError("Invalid filters provided. Must be a non-empty dictionary.")
-
-        # Start building the query
+            raise ValueError("Invalid filters provided. Must be a non-empty dictionary.")
         query = supabase.table(table_name).update(updates)
-
-        # Apply filters
         for column, value in filters.items():
             query = query.eq(column, value)
-
-        # Execute the query
         response = query.execute()
-
-        # Supabase client raises exceptions on errors
         data = response.data
         count = len(data) if data else 0
-        return {
-            "data": data,
-            "count": count,
-            "status": "success" if count > 0 else "no records updated or error" # Adjust based on expected success response
-        }
+        return {"data": data, "count": count, "status": "success" if count > 0 else "no records updated or error"}
     except Exception as e:
         raise Exception(f"An error occurred while updating records in table '{table_name}': {str(e)}") from e
 
@@ -229,28 +198,16 @@ def delete_table_records(
     supabase = ctx.request_context.lifespan_context.client
     try:
         if not table_name or not isinstance(table_name, str):
-             raise ValueError("Invalid table_name provided. Must be a non-empty string.")
+            raise ValueError("Invalid table_name provided. Must be a non-empty string.")
         if not filters or not isinstance(filters, dict):
-             raise ValueError("Invalid filters provided. Must be a non-empty dictionary.")
-
-        # Start building the query
+            raise ValueError("Invalid filters provided. Must be a non-empty dictionary.")
         query = supabase.table(table_name).delete()
-
-        # Apply filters
         for column, value in filters.items():
             query = query.eq(column, value)
-
-        # Execute the query
         response = query.execute()
-
-        # Supabase client raises exceptions on errors
         data = response.data
-        count = len(data) if data else 0 # Count might represent deleted items
-        return {
-            "data": data, # May contain info about deleted records
-            "count": count,
-            "status": "success" if count > 0 else "no records deleted or error" # Adjust based on expected success response
-        }
+        count = len(data) if data else 0
+        return {"data": data, "count": count, "status": "success" if count > 0 else "no records deleted or error"}
     except Exception as e:
         raise Exception(f"An error occurred while deleting records from table '{table_name}': {str(e)}") from e
 
@@ -274,39 +231,25 @@ def create_table(ctx: Context, table_name: str, schema: list) -> dict:
     """
     supabase = ctx.request_context.lifespan_context.client
     try:
-        # Basic input validation
         if not table_name or not isinstance(table_name, str):
             return {'success': False, 'message': "Invalid table name - must be a non-empty string."}
         if not schema or not isinstance(schema, list):
             return {'success': False, 'message': "Invalid schema - must be a non-empty list of column definitions."}
-
-        # Validate schema structure
         for col in schema:
             if not isinstance(col, dict) or 'name' not in col or 'type' not in col:
-                 return {'success': False, 'message': "Invalid column definition: Each column must be a dict with 'name' and 'type'."}
+                return {'success': False, 'message': "Invalid column definition: Each column must be a dict with 'name' and 'type'."}
             if not isinstance(col['name'], str) or not col['name']:
-                 return {'success': False, 'message': f"Invalid column name: '{col['name']}' must be a non-empty string."}
+                return {'success': False, 'message': f"Invalid column name: '{col['name']}' must be a non-empty string."}
             if not isinstance(col['type'], str) or not col['type']:
-                 return {'success': False, 'message': f"Invalid column type for '{col['name']}': Type must be a non-empty string."}
+                return {'success': False, 'message': f"Invalid column type for '{col['name']}': Type must be a non-empty string."}
             if 'constraints' in col and not isinstance(col.get('constraints'), str):
-                 return {'success': False, 'message': f"Invalid constraints for '{col['name']}': Constraints must be a string."}
-
-        # Call the RPC function
+                return {'success': False, 'message': f"Invalid constraints for '{col['name']}': Constraints must be a string."}
         response = supabase.rpc('create_new_table', {'p_table_name': table_name, 'p_columns': schema}).execute()
-
-        # The RPC function is expected to return a single text message or raise an error
         message = response.data if response.data else "No response message from RPC."
-        # Determine success based on the message content (adjust as needed based on SQL function)
-        # Assuming the SQL function returns a success message or raises an error handled by the client/FastMCP
         success = "successfully" in str(message).lower() or "table created successfully" in str(message).lower()
-
         return {'success': success, 'message': str(message)}
-
     except Exception as e:
-        # Handle exceptions during RPC call or validation
-        # Return error structure consistent with other tools if possible, or re-raise
         return {'success': False, 'message': f"An error occurred during create_table: {str(e)}"}
-
 
 @mcp.tool()
 def list_tables(ctx: Context) -> list:
@@ -324,20 +267,12 @@ def list_tables(ctx: Context) -> list:
     """
     supabase = ctx.request_context.lifespan_context.client
     try:
-        # Call the RPC function to list tables in the 'public' schema
         response = supabase.rpc('list_tables_in_schema', {'schema_name': 'public'}).execute()
-
-        # Supabase client raises exceptions on errors
         if response.data:
-             # Assuming the RPC function returns a list of dicts like [{'table_name': 'name1'}, ...]
-             return [table['table_name'] for table in response.data if isinstance(table, dict) and 'table_name' in table]
-        else:
-            # Handle case where RPC returns no data (could be no tables or an issue)
-            return [] # Return empty list if no tables found or RPC returned nothing
-
+            return [table['table_name'] for table in response.data if isinstance(table, dict) and 'table_name' in table]
+        return []
     except Exception as e:
         raise Exception(f"An error occurred while listing tables: {str(e)}") from e
 
-
 if __name__ == "__main__":
-    mcp.run() # No need to pass tools list, decorators handle it
+    mcp.run()
