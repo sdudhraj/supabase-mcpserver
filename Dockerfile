@@ -10,4 +10,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Command to run the MCP server
-CMD ["python", "supabase_mcp/server.py"]
+CMD ["python", "server.py"]
