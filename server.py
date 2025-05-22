@@ -53,12 +53,9 @@ async def supabase_lifespan(server: FastMCP) -> AsyncIterator[SupabaseContext]:
 
 # Create the MCP server instance using the lifespan manager
 mcp = FastMCP(
-    "Supabase MCP Server",
+    "supabase_mcp_server",
     description="MCP server for interacting with Supabase databases using FastMCP patterns",
-    lifespan=supabase_lifespan,
-    port=8080,  # Sets the default SSE port
-    host="127.0.0.1", # Sets the default SSE host
-    log_level="DEBUG" # Sets the logging level
+    lifespan=supabase_lifespan
 )
 
 @mcp.tool()
@@ -252,28 +249,28 @@ def read_table_rows(
 #     except Exception as e:
 #         return {'success': False, 'message': f"An error occurred during create_table: {str(e)}"}
 
-# @mcp.tool()
-# def list_tables(ctx: Context) -> list:
-#     """
-#     Lists all tables in the 'public' schema of the Supabase database using an RPC call.
+@mcp.tool()
+def list_tables(ctx: Context) -> list:
+    """
+    Lists all tables in the 'public' schema of the Supabase database using an RPC call.
 
-#     Note: This requires the PostgreSQL function 'list_tables_in_schema(schema_name TEXT DEFAULT 'public')'
-#     to be defined in your Supabase SQL editor.
+    Note: This requires the PostgreSQL function 'list_tables_in_schema(schema_name TEXT DEFAULT 'public')'
+    to be defined in your Supabase SQL editor.
 
-#     Args:
-#         ctx: The MCP context.
+    Args:
+        ctx: The MCP context.
 
-#     Returns:
-#         list: A list of table names in the public schema.
-#     """
-#     supabase = ctx.request_context.lifespan_context.client
-#     try:
-#         response = supabase.rpc('list_tables_in_schema', {'schema_name': 'public'}).execute()
-#         if response.data:
-#             return [table['table_name'] for table in response.data if isinstance(table, dict) and 'table_name' in table]
-#         return []
-#     except Exception as e:
-#         raise Exception(f"An error occurred while listing tables: {str(e)}") from e
+    Returns:
+        list: A list of table names in the public schema.
+    """
+    supabase = ctx.request_context.lifespan_context.client
+    try:
+        response = supabase.rpc('list_tables_in_schema', {'schema_name': 'public'}).execute()
+        if response.data:
+            return [table['table_name'] for table in response.data if isinstance(table, dict) and 'table_name' in table]
+        return []
+    except Exception as e:
+        raise Exception(f"An error occurred while listing tables: {str(e)}") from e
 
 if __name__ == "__main__":
     mcp.run()

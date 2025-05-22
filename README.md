@@ -123,7 +123,7 @@ To use the server, you can send JSON requests to the server's standard input. Fo
 {
     "supabase_url": "your_supabase_url",
     "supabase_key": "your_supabase_service_role_key",
-    "tool": "read_rows",
+    "tool": "read_table_rows",
     "arguments": {
         "table_name": "products",
         "limit": 5
